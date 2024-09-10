@@ -1,0 +1,880 @@
+---
+title: "Predicting Temporal Patterns in Keyword Searches with Recurrent Neural Networks — Phenotyping Human Behaviour from Search Engine Usage"
+format: 
+  html: default
+  ieee-conference-pdf:
+    keep-tex: true
+    fig-format: svg
+    fig-pos: htbp
+    include-in-header: 
+      - text: \usepackage{amsmath}
+execute:
+  echo: false
+bibliography: references.bib
+affiliation: 
+  author-columnar: true
+  institution:
+    - name: Swansea University
+      department: Department of Mathematics & Computer Science
+      location: Swansea, United Kingdom
+      mark: 1
+      author:
+        - name: Jay Paul Morgan
+          email: 0000-0003-3719-362X
+    - name: Zienkiewicz Institute, Swansea University
+      department: NAIADES Research Network
+      location: Swansea, United Kingdom
+      mark: 2
+      author:
+        - name: Frederic Boy
+          email: 0000-0003-1373-6634
+abstract: |
+  Every day, millions of people use search engines to find relevant information using various keywords and queries. These keywords may provide vital clues into our behaviour on a societal level and point to specific indicators of economical and well-being values. In this work, we examine the search volume data of 61 keywords from Google Trends. We find, using the average daily search volume, there exists three main patterns of how keywords are used throughout the day. The daily average search volume for these 61 keywords are compared using Dynamic Time Warping and categories using hierarchical clustering, while the 24-hour windows are modelled using a Recurrent Neural Network (RNN). The performance of this RNN is analysed using two experiments to test its ability to generalise to different types of keywords and to different dates. If integrated with an overarching system, this RNN could inform societal well-being and inform policies to tackle underlying societal issues.
+keywords: [Recurrent neural network, Long short-term memory neural networks, Sequence Classification, Signal Processing]
+colorlinks: true
+number-sections: true
+---
+
+```{r}
+#| echo: FALSE
+#| output: FALSE
+targets::tar_load_globals()
+targets::tar_load_everything()
+
+options(knitr.table.format = function() {
+  if (knitr::is_latex_output())
+    "latex" else "pipe"
+})
+
+fn <- function(number, digits = 2) {
+  format(round(number, digits = digits), nsmall = digits)
+}
+
+theme_set(
+  theme_linedraw() +
+  theme(
+    axis.title = element_text(size = 9),
+    axis.text = element_text(size = 7),
+    panel.grid = element_line(color = "lightgray", linetype = "dashed"),
+    plot.title = element_text(size = 9, hjust = 0.5),
+    plot.margin = unit(c(0, 4, 0, 0), "mm"),
+  )
+)
+```
+
+# Introduction {#sec-introduction}
+
+Macroeconomic indicators (*e.g.* Gross Domestic Product (GDP) and inflation) are periodically used to assess the economic performance of nations, but if they are extremely useful to policymakers and business-people, they have serious shortcomings as a substitute for evaluating societal advancement. For instance, it has been recognised for almost a century that GDP, which gauges overall economic output, fails to capture the complexity of human flourishing [@SaunderDalziel2021] and by only quantifying market-based transactions, omits non-pecuniary determinants of well-being like leisure time, inequalities in income distribution, access to health services, and environmental integrity [@Piekałkiewicz_2017] in advanced economies and often diverges from citizens' sense of progress. This measurement limitation has spurred calls to supplement GDP with more humanistic and holistic indicators that are able to capture experiential prosperity beyond material consumption and production output.
+
+However, constructing metrics that align more closely with people's self-reported life satisfaction remains an ongoing challenge [@Kuznets:1934] and most existing well-being metrics depend on census survey data that lag in timely relevance and risk human response biases, undermining robustness. To solve this issue, common to many research efforts in the social sciences, and increase the temporal frequency at which well-being metrics are measured, we took to validate the use of digital epidemiology on keyword searches trends time-series on the Google search engine.
+
+Google Trends provides a unique perspective by analysing the keywords people are using. Google Trends is a service which allows queries for search keywords or topics, returning a normalised time series index of the volume of traffic relating to these search keywords in a geographical area [@choiPredictingPresentGoogle2012]. To date, Google Trends data have been used in a wide range of research which -examined, for instance, the impact of COVID-19 lock-downs on well-being concerns [@brodeurCOVID19LockdownsWellbeing2021; @Knipe:2021; @Roy:2023], -carried out disease surveillance [@Bakker2016DigitalER; @Mavragani:2019; @carneiroGoogleTrendsWebBased2009], or -explored other public health related topics[@Houghton2023]. Recent studies investigated whether data from Google Trends could predict levels of self-reported mental well-being. [@Knipe:2021] found that search volumes for the keyword "loneliness" in the US co-varied with self-reported loneliness from cross-sectional data covering the same period. Robust evidence that search volumes time-series for well-being related keyword queries, sampled daily and weekly, were correlated with measures of population-level well-being was provided by [@boy2023google]. They replicated a series of independent correlations between national well-being surveys, the EARS AI-supported platform's measurement of Social Listening developed by the World Health Organisation (WHO) [@EARS:2022] and Google Trends data for specific well-being keywords (*anxiety*, *stress* and *depression*). The combination of Google Trends data with econometrics-standard objective indices (albeit some are based on self-report) has therefore the potential to afford researchers and policy-makers with a promising new means of accelerating the detection of rapid societal change. 
+
+<!-- Additionally, careful triangulation of industry data, population-level surveys and search engine trends data will help address some limitations inherent to the sporadic and potentially biased nature of survey data collection [@bogner2016gesis]. -->
+
+The use of Google Trends data to facilitate the training a Machine Learning model to perform a high frequency sampling of economic and well-being indicators provides a unique opportunity for informing policy makers. In this work, begin this process by first analysing a set of keyword search data from Google Trends, and learning patterns of search volume with a Recurrent Neural Network (RNN). This RNN is used to model trends and patterns of keywords for hourly data sampled from Google Trends. This research then provides a foundation for future work to tightly integrate this RNN with economic and well-being indicators in a geographical monitoring framework.
+
+The rest of this paper is organised as follows: in @sec-related-works, we look at existing works that use time series data & Google Trends. In @sec-data-methods the format of the data and the architecture of the model considered in this study is explained. @sec-experiments demonstrates the experimental framework and shows the results. We give a discussion in @sec-discussion and our conclusions in @sec-conclusion.
+
+# Related Works {#sec-related-works}
+
+RNNs are primarily used for time-series forecasting and sequence modelling tasks due to their architecture, which is optimised for processing sequential data \cite{lim2021}. They have been used in a range of contexts, as in language modelling \cite{soutner2013}, stock price prediction \cite{moghar2020}, activity recognition or classification \cite{matias2022}, and anomaly detection \cite{ergen2020}
+
+RNNs have also been used successfully for a variety of different tasks. For example, \cite{nfissi2022} uses a combination of convolutional layers and Gated Recurrent Units (GRU) to recognise the emotions from speech wave, forms. \cite{montajabi2022} use Long Short-Term Memory Units (LSTM) in an encoder-decoder architecture to compress video into a lower file size without compromising on video quality. \cite{ranganath2022} use an RNN to perform a denoising and up-sampling of images.
+
+Measures of internet traffic, such as those provided by Google Trends, have been used to model various societal indicators. One of the earliest examples of using search engine keyword queries data for economic predictions was done by \cite{ettredgeUsingWebbasedSearch2005} in correlating search terms with unemployment rates. Subsequent works have continued investigating how search data can predict unemployment rates \cite{singhania2020}.
+
+Several research showed interesting temporal correlation between search engine keyword queries trends and have shown correlations of internet traffic with disease outbreaks, indicating the potential use of keyword monitoring to predict and control infections \cite{ johns.brownstein2009}, while \cite{cooperCancerInternetSearch2005} correlated cancer news coverage with *Yahoo!* search terms. \cite{carneiroGoogleTrendsWebBased2009} demonstrates *Google Flu*, a platform for detecting outbreaks of diseases. Keyword trends appear to correlate with CDC surveillance data between 2004 and 2008. While \cite{brodeurCOVID19LockdownsWellbeing2021} looks at the effect that disease outbreaks has on keyword usage using difference-to-difference model for before and after COVID-19 lock-downs.
+
+Few works have used RNN in combination with Google Trends. \cite{singhania2020} selects a series of Google Trends, keywords from 2004-2019, and after using the Shapely Additive explanations (SHAP) algorithm to reduce to a smaller set of useful keywords, uses a LSTM to forecast and predict unemployment claims in the US. Their results show that an LSTM is able to outperform a Vector Autoregressive Model on this task. \cite{liu2018} uses an LSTM to predict influenza infections. Other work shows that a can LSTM replaced by a Seq2Seq+Attention model for better performance in influenza infection prediction using Google Trends data \cite{kondo2019}. More recent work has continued this trend of infection prediction, where \cite{prasanth2021} use an LSTM to forecast cases of COVID-19 in India, the UK, and the US. Other work investigates the migration task, \cite{golenvaux} uses an LSTM to predict migration patterns using 67 migration related keywords.
+
+While the previous state of the art mainly focused on trend forecasting and prediction, it motivates the present attempt to use RNN for classifying temporal patterns of search engine keyword queries. To the best of our knowledge, this is the first attempt to characterise phenotypical patterns of online information search at a hourly granularity. We foresee the use of these patterns to abstract away from the specific keywords, and therefore may be able to transfer knowledge and extend methodologies to different languages and countries
+
+# Data & Methods {#sec-data-methods}
+
+Google Trends is a publicly available data service provided by Google Inc. that allows users to access the temporal dynamics of keyword-based internet search volume. Google Trends provides access to a single measurement: the relative Search Volume (RSV), a normalised metric relative to the temporal- and geographical remits of a specific interrogation of the database, such that the values range from 0 to 100 over the time the user has requested. Due to limitations provided by Google Trends it is not possible to query for large time frames of search volumes, therefore the user will often perform multiple queries for different times and perform a post-processing method to make the normalisation consistent across queries such as performed in [@brodeurCOVID19LockdownsWellbeing2021; @carneiroGoogleTrendsWebBased2009]. This post-processing stage is necessary to analyse changes in search volume across large time frames. However, unlike \cite{brodeurCOVID19LockdownsWellbeing2021, carneiroGoogleTrendsWebBased2009}, the present research is not concerned by change of search volume across time, but rather, by the morphology of search volume over shorter 24-hour or 168-hour intervals. Therefore, in the present case, scaling methods are not necessary.
+
+## Dataset
+
+```{r}
+#| echo: false
+#| output: false
+n_keywords <- final_data %>% pull(keyword) %>% unique %>% length
+```
+
+To facilitate the training of an RNN to predict patterns in the search volumes of keywords, we compiled compiled a dataset of search volume data for many keywords over a period of 5 years. In this section, we detail this method of compilation.
+
+A set of `{r} n_keywords` keywords were sampled from Google Trends\footnote{For sampling the data, we used the gtrendsR library (\url{https://github.com/PMassicotte/gtrendsR}).} at an hourly frequency over 168-hours for a total of 5 years from `{r} final_data %>% pull(date) %>% min` to `{r} final_data %>% pull(date) %>% max`. 
+
+The keyword selection was based on established theoretical frameworks in affective psychology and well-being research. Specifically, we drew upon the seminal works of [@watson1988development] on mood and affect, [@thompson2007development] research on emotional experiences, and [@diener2010new] studies on well-being measures. This grounding in recognised theories ensured our keyword choices were academically rigorous and relevant to well-being indicators. Our study used a comprehensive set of 61 emotion-related and neutral words in the English language, derived from multiple validated psychological assessment tools. The emotion words were drawn from instruments such as the Positive and Negative Affect Schedule Extended Scale (PANAS-X) [@watson1994panas], the International Positive and Negative Affect Schedule Short Form Scale (I-PANAS-SF) [@thompson2007development], and the Scale of Positive and Negative Experience (SPANE) [@diener2010new], among others. This diverse selection ensured a broad coverage of affective states, enhancing the robustness of our analysis in capturing various dimensions of emotional experience.
+
+An example of the search volume for the keyword *Why* is presented in @fig-why. Here we observe a common pattern of increased search frequency during certain hours of the day (@fig-why (b)). These patterns appeared to be consistent over the week (@fig-why (a)) with some differences for the weekend. These patterns of search frequency are not limited to just the keyword *Why* but were seen across all keywords in our dataset.
+
+```{r}
+#| label: fig-why
+#| fig-cap: Search volume for the keyword _Why_. In (a), we show the search volume over the entire week, whereas in (b)  the daily average.
+#| fig-width: 4.5
+#| fig-height: 1.9
+
+p1 <- final_data %>%
+  filter(keyword == "Why", week == 1) %>%
+  ggplot(aes(x = seq(1, 168), y = search_index)) +
+    geom_point(size = 0.9, shape = 4) +
+    geom_line() +
+    labs(x = "Hour", y = "Search volume", title = "(a) Weekly volume")
+
+p2 <- final_data %>%
+  filter(keyword == "Why", week == 1) %>%
+  group_by(hour) %>%
+  summarise(search_index = mean(search_index)) %>%
+  ggplot(aes(x = hour, y = search_index)) +
+    geom_point(size = 0.9, shape = 4) +
+    geom_line() +
+    labs(x = "Hour", y = "Search volume", title = "(b) Daily average")
+  
+(p1 + p2) + plot_layout(axis_titles = "collect")
+```
+
+Averaging the volume data over the week, we saw three patterns of search volume emerge for all keywords. In @fig-patterns we show the three morphological patterns in the search volume data. In one pattern (labelled B), the search volume increases during the midday period. While for the two other shapes (labelled A and C), the most traffic occurs during night-time. There is a key difference between A & C, however. First, with pattern A, the volume increases mostly in the early hours of the morning and slowly increases during the night time hours. With pattern C, the search volume increases during the evening, resulting in high traffic during the night time hours.
+
+```{r}
+#| fig-cap: "Three patterns of search trends. Each of these trends are labelled A, B, and C."
+#| fig-width: 3.5
+#| fig-height: 2
+#| label: fig-patterns
+#| message: false
+cbbPalette <- c("#E69F00", "#000000", "#56B4E9")
+
+  mean_curves %>% 
+    left_join(classes, by = join_by(keyword == keyword)) %>%
+    group_by(class) %>% 
+    mutate(value = (value - min(value)) / (max(value) - min(value)), class = factor(class)) %>% 
+    ungroup() %>% 
+    ggplot(aes(x = hour, y = value, group = class, color = class)) + 
+    stat_smooth(method="loess", span=0.65, se=TRUE, alpha=0.3, show.legend = F) + 
+    # theme(panel.grid.minor = element_blank(), 
+    #       panel.grid.major = element_blank()) +
+    xlab("Hour") + 
+    ylab("Search volume") + 
+    scale_x_continuous(expand = c(0, 0), breaks = seq(1, 25, 2)) + 
+    scale_color_manual(values=c("darkgreen", "red", "blue")) +
+    annotate("text", x = 9, y = 0.0, label = "A", color = "darkgreen") +
+    annotate("text", x = 10, y = 0.95, label = "B", color = "red") +
+    annotate("text", x = 13, y = 0.45, label = "C", color = "blue")
+```
+
+These existence of these patterns in search volume data reinforced the notion of seasonality to which people search using particular keywords, and motivated the use of an RNN to learn from noisy data (@fig-why (a)) to predict one of the three patterns in @fig-patterns.
+
+```{r}
+#| label: fig-linear-interpolation
+#| fig-cap: Imputation of missing values. The missing values visualised by a white-filled circle is interpolated using the surrounding black-filled squares. In the left figure (a), the interpolation considers the previous and next values. In the right figure (b), the closet non-missing value is used.
+#| fig-width: 4.5
+#| fig-height: 2
+
+opar <- par(no.readonly = TRUE)
+par(mfrow=c(1,2), mar = c(1.5, 1, 1.5, 1))#, pin=c(3, 2))
+
+lc <- c(5, 5, 4, NA, 2, 1, 3, 3)
+lcm <- c(NA, NA, 4, 3, 2, NA, NA, NA)
+
+rc <- c(NA, 5, 4, 3, 2, 1, 3, NA)
+rcm <- c(5, 5, NA, NA, NA, NA, 3, 3)
+
+xs <- seq(1, length(lc))
+
+plot(xs, lc, type="b", pch=15, yaxt="n", ylab="", xaxt="n", xlab="", main="(a)", cex.main = 0.8)
+lines(xs, lcm, type="b", lty=2)
+
+plot(xs, rc, type="b", pch=15, yaxt="n", ylab="", xaxt="n", xlab="", main="(b)", cex.main = 0.8)
+lines(xs, rcm, type="b", lty=2)
+par(opar)
+
+
+```
+
+To compute the associated search volume pattern for each keyword, i.e. to which of the three morphological patterns does each keyword correspond to, we performed the following process\footnote{We have released the source code under an open source licence. This code can be found at \url{https://github.com/jaypmorgan/gtrends}}:
+
+First we impute missing values using a combination of linear interpolation and closest value pairing. This first step addresses missing values through linear interpolation using adjacent data points. For gaps at the time-series' start or end, we use the nearest available value (see @fig-linear-interpolation).
+
+Next, using the Dynamic Time Warping (DTW) algorithm[@bellman1959adaptive], we generate of a pairwise distance matrix The DTW algorithm measures the similarity between sequences (where lower values indicate a higher degree of similarity). While DTW is designed to account for differences in temporal variation between two time-series, DTW can also accurately measure similarities when the there are no temporal variation such as in our data. Using DTW, the seasonalities that are more closely matched in shape will have a smaller distance, while different shapes will have a larger distance. DTW is applied to the mean daily average of each keyword, against every other keyword, thereby generating an $`{r} n_keywords` \times `{r} n_keywords`$ distance matrix.
+
+Using the pairwise distance matrix, we perform hierarchical clustering using the distance matrix. Keywords with small distances to one another (and thereby by extension will have a similar shape) are clustered/grouped together.
+
+Finally, to label each of the keywords into one of the three patterns, we selected 3 clusters as the cut-off value for the hierarchical clustering algorithm.
+
+Following this process, for each of the `{r} n_keywords` keywords a corresponding label (A, B, & C) is assigned, resulting in the dendrogram shown in @fig-dendrogram. We observe there is a common theme between clustered keywords. For example, pattern A contains many terms associated with emotions such as *Angry*, *Amazing*, and *Annoyed*. Pattern B contains economic related terms such as *HMRC*, *Money*, and *Mortgage*. This pattern also includes keywords such as *Plant*, *Tree*, *Flower*. Meanwhile, label C contains more negatively associated terms such as *Depression*, *Sad*, *Fear*, and *Cancer*. These negative terms, in particular, are increasingly search for in the early hours of the morning, providing some insight into the condition of those individuals who are using these terms as part of their internet searches. There appears to be some overlap in themes between patterns A & C, which is consistent with the similarity in the pattern morphology. Therefore, in our experiments, we consider both a 3-class prediction task (A, B, & C), and a 2-class task where keywords labelled C are collapsed into A, thereby predicting between B and not B (A+C, & B).
+
+```{r}
+#| tbl-cap: Number (Proportion) of samples per pattern.
+#| label: tbl-n-patterns
+final_data %>%
+  select(-date) %>%
+  pivot_wider(names_from = hour, values_from = search_index) %>%
+  mutate(class =  map(class, label_converter) %>% unlist %>% as.factor()) %>%
+  select(class) %>%
+  tbl_summary() %>%
+  bold_labels() %>%
+  modify_footnote(everything() ~ NA) %>%
+  as_kable_extra(booktabs = T)
+```
+
+With a pattern label assigned to the keywords, each 168-hour sample is split into 24-hour windows. This results in dataset with a size of 113,155 samples. The number and representative proportion for each of the three pattern types in shown in @tbl-n-patterns. 
+
+<!-- A list of keywords with daily averages and pattern labels are shown in Appendix A. -->
+
+```{r}
+#| label: fig-dendrogram
+#| fig-cap: Hierarchical clustering of keywords. Colours are used to denote the three different patterns.
+#| fig-height: 7
+#| fig-width: 3
+#| fig-format: svg
+par(cex=0.6)
+hierarchical_clustering(mean_curves)
+```
+
+## Model Architecture
+
+![Architecture of the RNN.](images/model-explanatory-small.svg){#fig-model fig-env="figure" width="48%" height="20%" fig-pos="th"}
+
+To predict the search volume pattern given a 24-hour window, we construct an RNN as illustrated in @fig-model. Our RNN is composed of two stacked layers of LSTM cells that process each hour of the 24-hour window sequentially while maintaining a hidden and cell state. After processing the entire sequence, the final hidden state of the last LSTM layer is projected to a classification label (A, B, or C) via a series of fully-connected layers with ReLU activation functions.
+
+To train our RNN, we use R 4.4.1 with torch 0.13.0, running on an Nvidia 3070 GPU. The network is trained for 10 epochs with a batch size of 512 samples. At the end of each epoch, the model is evaluated on the validation set. The model weights are optimised using the Adam optimiser with its default parameters. These hyperparameters are summarised in Table \ref{tab:hyperparameters}.
+
+This architecture serves as a baseline for assigning search volume patterns to daily search frequencies. We have not performed hyperparameter tuning, therefore there may be some changes to the training which yield better model performance in some experiments. While this model may not give the best possible results, it may be iterated upon in future work.
+
+```{=tex}
+\begin{table}
+    \centering
+    \caption{Training hyperparameters used in experiments.}
+    \begin{tabular}{rl}
+    \toprule
+       Hyperparameter  & Value \\
+    \midrule
+       Batch size  & 512 \\
+       Epochs  & 10 \\
+       Optimiser & Adam \\
+       Learning Rate & 1e-3 \\
+       Validation Split & 10\% of training set \\
+    \bottomrule
+    \end{tabular}
+    \label{tab:hyperparameters}
+\end{table}
+```
+
+# Experiments {#sec-experiments}
+
+In this work, we perform two main experiments to evaluate the RNN under a range of conditions and scenarios. The first experiment investigates, given this data, how well an RNN generalises to different keywords. The second experiment evaluates the model's ability to generalise to different dates. This experiment may be pertinent given that a subset of the data was sampled during the COVID-19 pandemic, which had a measured effect on the economic and behavioural indicators [@brodeurCOVID19LockdownsWellbeing2021].
+
+## Generalisation to Different Keywords
+
+```{r}
+#| eval: false
+library(torch)
+library(luz)
+library(caret)
+
+if (exists("results")) {
+  remove(results)
+}
+
+EPOCHS = 10
+BATCHSIZE = 512
+
+torch_manual_seed(42)
+set.seed(42)
+
+# create the folds for cross-validation
+keywords <- final_data %>% select(keyword, class) %>% unique
+folds    <- createFolds(keywords %>% pull(class), k = 5)
+
+for (fold_idx in 1:length(folds)) {
+  test_keywords <- keywords[folds[[fold_idx]],]
+  splits <- final_data %>%
+    mutate(test = keyword %in% test_keywords$keyword) %>%
+    group_split(test)
+  train <- splits[[1]]
+  test  <- splits[[2]]
+  
+  # create a small validation set
+  valid_keywords <- train %>% select(keyword, class) %>% group_by(class) %>% sample_n(2)
+  splits <- train %>%
+    mutate(valid = keyword %in% valid_keywords$keyword) %>%
+    group_split(valid)
+  train <- splits[[1]]
+  valid <- splits[[2]]
+  
+  ## splits should be roughly:
+  ## - valid: 0.1
+  ## - train: 0.7
+  ## - test : 0.2
+  # print(nrow(valid)/nrow(final_data))
+  # print(nrow(train)/nrow(final_data))
+  # print(nrow(test)/nrow(final_data))
+  
+  maxv <- max(train$search_index)
+  minv <- min(train$search_index)
+
+  prep <- function(data) {
+    normalise(data, minv, maxv) %>%
+      mutate(date = as.Date(date)) %>%  # remove time component as it will be collapsed into a single day
+      select(keyword, week, hour, day, date, search_index, class, uid) %>%
+      group_by(keyword, week, day) %>%
+      pivot_wider(names_from = hour, names_glue = "h{hour}", values_from = search_index) %>%
+      ungroup()
+  }
+  
+  as_dataloader <- function(data, shuffle = FALSE) {
+    data %>%
+      select(starts_with("h"), class) %>%
+      unlist(use.names = FALSE) %>%
+      matrix(ncol = 25) %>%
+      torch_tensor %>%
+      df_dataset %>%
+      dataloader(batch_size = BATCHSIZE, shuffle = shuffle)
+  }
+
+  train_ds <- prep(train) %>% sample_frac(1.)
+  valid_ds <- prep(valid)
+  test_ds  <- prep(test)
+  
+  train_dl <- as_dataloader(train_ds, shuffle = TRUE)
+  valid_dl <- as_dataloader(valid_ds)
+  test_dl  <- as_dataloader(test_ds)
+
+  ckpt_path <- here("data", "results", glue::glue("model_exp=1_fold={fold_idx}.pt"))
+
+  # build and fit the model
+  net <- rnn %>%
+    setup(optimizer = optim_adam,
+          loss = nn_cross_entropy_loss(),
+          metrics = list(luz_metric_accuracy())) %>%
+    set_hparams(num_layers = 2, bidirectional = TRUE) %>%
+    set_opt_hparams(lr = 1e-03) %>%
+    fit(train_dl, valid_data = valid_dl, epochs = EPOCHS, accelerator = accelerator(),
+        callbacks = list(luz_callback_model_checkpoint(
+                          path = ckpt_path,
+                          monitor = "valid_loss",
+                          save_best_only = TRUE)))
+
+  # reload the best model
+  luz_load_checkpoint(net, ckpt_path)
+
+  # create the predictions and add them to the results
+  predictions <- net %>% predict(test_dl) %>% nnf_softmax(dim = 2)
+  test_ds     <- test_ds %>%
+    mutate(prediction = predictions %>% torch_argmax(dim = 2) %>% as_array,
+           fold = fold_idx) %>%
+    bind_cols(predictions %>% as_array %>% as_tibble(.names_repair = "unique"))
+  if (!exists("results")) {
+    results <- test_ds
+  } else {
+    results <- bind_rows(results, test_ds)
+  }
+}
+
+# finalise the results data
+results <- results %>%
+  mutate(class = factor(class, levels = c(1, 2, 3)),
+         prediction = factor(prediction, levels = c(1, 2, 3)))
+
+# write to csv for later.
+results %>%
+  write_csv(here("data", "results", "exp=1.csv"))
+```
+
+While we have a wide range of different types of keywords, generalising to different keywords is a desirable property of any Machine Learning model. Therefore, in this experiment, we perform a 5-fold cross validation on the keywords (*i.e.* the trend data for a single keyword is either in the training or testing set, but not both). We use stratified sampling for the splitting of folds to ensure a consistent proportion of pattern types in the testing set and minimise skewed results as a result of under-representation. The results are then averaged over the 5 folds and, where applicable, are formatted as: mean (standard deviation). We report the Accuracy (%) and $F_1$ score averaged over the three pattern types. In addition to these two metrics, we also report the Matthews Correlation Coefficient due to the class imbalance between patterns. This metric may show a more accurate representation of performance in light of the class imbalance.
+
+```{r}
+#| echo: false
+#| message: false
+results1 <- here("data", "results", "exp=1.csv") %>%
+  read_csv() %>%
+  mutate(class = map(class, label_converter) %>% unlist %>% as.factor(),
+         prediction = map(prediction, label_converter) %>% unlist %>% as.factor())
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+make_results <- function(pred) {
+  metrics <- metric_set(accuracy, f_meas, mcc)
+  
+  by_keyword <- pred %>%
+    group_by(keyword, fold) %>%
+    summarise(prediction = modelr::typical(prediction),
+              class = modelr::typical(class)) %>%
+    ungroup() %>%
+    mutate(prediction = as.factor(prediction),
+           class = as.factor(class))
+
+  a_c <- pred %>%
+    mutate(class = ifelse(class == "C", "A", class),
+           prediction = ifelse(prediction == "C", "A", class)) %>%
+    mutate(class = as.factor(class),
+           prediction = as.factor(prediction))
+  
+  a_c_by_keyword <- pred %>%
+    group_by(keyword, fold) %>%
+    summarise(prediction = modelr::typical(prediction),
+              class = modelr::typical(class)) %>%
+    ungroup() %>%
+    mutate(prediction = as.factor(prediction),
+           class = as.factor(class))
+  
+  r1 <- pred %>%
+    group_by(fold) %>%
+    metrics(truth = class, estimate = prediction, estimator = "macro") %>%
+    add_column(criteria = "24-window", type = 1) 
+  r2 <- by_keyword %>%
+    group_by(fold) %>%
+    metrics(truth = class, estimate = prediction, estimator = "macro") %>%
+    add_column(criteria = "By keyword", type = 1)
+
+  r3 <- a_c %>%
+    group_by(fold) %>%
+    metrics(truth = class, estimate = prediction, estimator = "macro") %>%
+    add_column(criteria = "24-window", type = 2)
+  r4 <- a_c_by_keyword %>%
+    group_by(fold) %>%
+    metrics(truth = class, estimate = prediction, estimator = "macro") %>%
+    add_column(criteria = "By keyword", type = 2)
+
+  return(list(results = bind_rows(r1, r2, r3, r4), by_keyword = by_keyword))
+}
+
+res1 <- make_results(results1)
+
+# res1$results %>%
+#   group_by(type, criteria, .metric) %>%
+#   summarise(mean_metric = mean(.estimate), std_metric = sd(.estimate),
+#             min_metric = min(.estimate), max_metric = sd(.estimate),
+#             .groups = "keep") %>%
+#   ungroup() %>%
+#   mutate(means = paste0(fn(mean_metric * 100), " (", fn(std_metric * 100), ")"),
+#          ranges = paste0(fn(min_metric), " - ", fn(max_metric))) %>%
+#   select(type, criteria, .metric, means, ranges) %>%
+#   mutate(.metric = str_replace_all(.metric, "accuracy", "Accuracy") %>%
+#            str_replace_all("f_meas", "F_1")) %>%
+#   pivot_wider(names_from = .metric, values_from = c(means, ranges)) %>%
+#   select(criteria, means_Accuracy, ranges_Accuracy, means_F_1, ranges_F_1) %>%
+#   kable(booktabs = T,
+#         table.envir='table*',
+#         align = "rcccc",
+#         caption = "Average accuracy scores for RNN trained over 5 k-folds. Results are shown for both 3-class classification of the 3 patterns, and for the binary classification where the A \\& C patterns are combined into a single classification label.",
+#         valign = "t",
+#         label = "tbl-results",
+#         digits = 3,
+#         col.names = c("Criteria", "Mean (SD)", "Range", "Mean (SD)", "Range")) %>%
+#   add_header_above(c(" " = 1, "Accuracy (\\%)" = 2, "$F_1$" = 2), escape = F) %>%
+#   pack_rows("3-class (A, B, & C)", 1, 3) %>%
+#   pack_rows("2-class (A+C, & B)", 3, 4)
+```
+```{r}
+#| echo: false
+#| message: false
+results2 <- here("data", "results", "exp=2.csv") %>%
+  read_csv() %>%
+  mutate(class = map(class, label_converter) %>% unlist %>% as.factor(),
+         prediction = map(prediction, label_converter) %>% unlist %>% as.factor())
+```
+
+```{r}
+#| message: false
+res2 <- make_results(results2)
+
+full_results <- res1$results %>%
+  mutate(exp=1) %>%
+  bind_rows(res2$results %>% mutate(exp=2))
+
+full_results %>%
+  group_by(exp, type, criteria, .metric) %>%
+  summarise(mean_metric = mean(.estimate), std_metric = sd(.estimate),
+            min_metric = min(.estimate), max_metric = max(.estimate),
+            .groups = "keep") %>%
+  ungroup() %>%
+  mutate(means = paste0(fn(mean_metric * 100), " (", fn(std_metric * 100), ")"),
+         ranges = paste0(fn(min_metric), " - ", fn(max_metric))) %>%
+  select(exp, type, criteria, .metric, means, ranges) %>%
+  mutate(.metric = str_replace_all(.metric, "accuracy", "Accuracy") %>%
+           str_replace_all("f_meas", "F_1")) %>%
+  pivot_wider(names_from = .metric, values_from = c(means, ranges)) %>%  
+  mutate(type = ifelse(type == 1, "3-class (A, B, & C)", "2-class (A+C, & B)"),
+         line = row_number()) %>%
+  select(line, type, criteria, means_Accuracy, ranges_Accuracy, means_F_1, ranges_F_1, means_mcc, ranges_mcc) %>%
+  kable(booktabs = T,
+        table.envir = "table*",
+        label = "results_table",
+        align = "lcrcccc",
+        caption = "Accuracy, $F_1$, and Matthews Correlation Coefficient scores for our RNN trained over 5 k-folds. Results are shown for both 3-class classification of the 3 patterns, and for the binary classification where the A \\& C patterns are combined into a single classification label. Row numbers 1 to 8 have been added to help for reference in the text.",
+        col.names = c(" ", "Target Patterns", "Criteria", "Mean (SD)", "Range", "Mean (SD)", "Range", "Mean (SD)", "Range")) %>%
+  pack_rows("Experiment 1 - Generalisation to keywords", 1, 4) %>%
+  pack_rows("Experiment 2 - Generalisation to dates", 5, 8) %>%
+  collapse_rows(2, latex_hline = "none", valign = "bottom") %>%
+  add_header_above(c(" " = 1, " " = 1, " " = 1, "Accuracy (\\%)" = 2, "$F_1$" = 2, "Matthews Correlation Cofficient" = 2), escape = F)
+```
+
+In Table \ref{tab:results_table}, the results are shown. Here we observe the RNN achieves an accuracy of 77.64% (Table \ref{tab:results_table} row 1) when predicting over 3-classes (A, B & C). If we take most common predicted pattern over all 24-hour windows for each keyword, the accuracy score increases to 86.79% (Table \ref{tab:results_table} row 2) which means out of the 61 keywords predicted (over all folds), then roughly 53 keywords were predicted correctly while 8 were not. Most notably, we see through the visualisation of the Receiver-Operating Curves (ROC) (@fig-roc) that the RNN had more difficulty in predicting for classes A & C in one of the folds. If we investigate these failure cases for each fold (@tbl-wrong-results) we see the majority of misclassifications are between the A & C patterns. This result may be expected as A and C share a similar profile, with the main difference being the amount of increased searches in the evening/night hours.
+
+```{r}
+#| label: fig-roc
+#| fig-cap: ROC curves over 5-fold cross validation.
+#| fig-width: 4.5
+#| fig-height: 2
+results1 %>%
+  group_by(fold) %>%
+  yardstick::roc_curve(class, V1:V3) %>%
+  autoplot() +
+  labs(color = "Fold") +
+  #theme_classic() + 
+  # theme(legend.position = "none",
+  #       axis.text.x = element_text(size = 8),
+  #       axis.text.y = element_text(size = 8),
+  #       plot.margin = unit(c(0,0,0,0), "cm"),
+  #       strip.background = element_blank(),
+  #       panel.spacing = unit(0.4, "cm"))
+  theme_linedraw() + 
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 9, color = "black"),
+        legend.position = "none",
+        axis.title = element_text(size = 9),
+        axis.text = element_text(size = 7),
+        panel.grid = element_line(color = "lightgray", linetype = "dashed"),
+        plot.title = element_text(size = 9),
+        plot.margin = unit(c(0, 4, 0, 0), "mm"))
+```
+
+```{r}
+#| label: tbl-wrong-results
+#| tbl-cap: Incorrectly predicted keywords over 5 folds.
+#| echo: false
+#| message: false
+failed_cases <- res1$by_keyword %>%
+  filter(prediction != class) %>%
+  rename(Fold = fold, Keyword = keyword, Predicted = prediction, Target = class)
+
+failed_cases %>%
+  ungroup() %>%
+  select(Keyword, Predicted, Target) %>%
+  kable(booktabs = T, linesep = "") #%>%
+  #pack_rows(index = table(failed_cases$Fold))
+```
+
+In another case, *i.e.* the *Cool* & *Flower* keywords, the RNN has predicted pattern B, whereas the target pattern is C. Looking at the mean curve for these keywords (@fig-missclassified-happy-flight (a) & (b)), it is clear these curves may not easily be classified into one of the three patterns due the very quick decrease at hour 5 and the sharp increase thereafter. These two curves only slightly resemble pattern C, but also contains the high search index during the daytime. Therefore, it is understandable why the RNN has made a misclassification in these situations. In other cases where the RNN has made incorrect predictions, such as @fig-missclassified-happy-flight (c), the RNN does not correctly distinguishing between patterns C & A since they are very close in similarity. If we were to collapse the classification C into A to form a single class (thereby performing a binary classification task between A+C and B) we get the performance increase considerably for the 24-hour window up to 98.38% (Table \ref{tab:results_table} row 3). This model is of course more accurate due to there being a much more clear distinction between pattern B and the other two patterns.
+
+```{r}
+#| label: fig-missclassified-happy-flight
+#| fig-cap: "Example search index curves for 3 different misclassified keywords: (a) Cool, (b) Flower, and (c) Sleep."
+#| fig-width: 4.5
+#| fig-height: 1.5
+p1<-visualise_mean_curve(mean_curves, "Cool") + 
+  labs(title = "(a) Cool", y = "Search volume", x = "Hour")
+
+p2<-visualise_mean_curve(mean_curves, "Flower") + 
+  labs(title = "(b) Flower", y = "Search volume", x = "Hour") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+p3<-visualise_mean_curve(mean_curves, "Sleep") + 
+  labs(title = "(c) Sleep", y = "Search volume", x = "Hour") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+(p1+p2+p3+plot_layout(axis_titles = "collect"))
+```
+
+In general we see that the model is able to predict well the type of search pattern given a 24-hour window. However, there are certain cases (such as *Cool* and *Flower*), where this pattern is not so easily distinguishable.
+
+## Generalisation to different dates
+
+```{r}
+#| eval: false
+library(torch)
+library(luz)
+library(caret)
+
+if (exists("results")) {
+  remove(results)
+}
+
+EPOCHS = 10
+BATCHSIZE = 512
+
+torch_manual_seed(42)
+set.seed(42)
+
+weeks <- seq(1, 265)
+
+for (fold_idx in 1:5) {
+  start <- ((fold_idx-1)*53) + 1
+  end   <- ((fold_idx-1)*53) + 53
+  test_weeks <- weeks[start:end]
+  
+  splits <- final_data %>%
+    mutate(test = week %in% test_weeks) %>%
+    group_split(test)
+  train <- splits[[1]]
+  test  <- splits[[2]]
+  
+  valid_weeks <- seq(train$week %>% min, (train$week %>% max) * 0.1)
+  splits <- train %>%
+    mutate(valid = week %in% valid_weeks) %>%
+    group_split(valid)
+  train <- splits[[1]]
+  valid <- splits[[2]]
+  
+  maxv <- max(train$search_index)
+  minv <- min(train$search_index)
+
+  prep <- function(data) {
+    normalise(data, minv, maxv) %>%
+      mutate(date = as.Date(date)) %>%
+      select(keyword, week, hour, day, date, search_index, class, uid) %>%
+      group_by(keyword, week, day) %>%
+      pivot_wider(names_from = hour, names_glue = "h{hour}", values_from = search_index) %>%
+      ungroup()
+  }
+
+  as_dataloader <- function(data, shuffle = FALSE) {
+    data %>%
+      select(starts_with("h"), class) %>%
+      unlist(use.names = FALSE) %>%
+      matrix(ncol = 25) %>%
+      torch_tensor %>%
+      df_dataset %>%
+      dataloader(batch_size = BATCHSIZE, shuffle = shuffle)
+  }
+
+  train_ds <- prep(train) %>% sample_frac(1.)
+  valid_ds <- prep(valid)
+  test_ds  <- prep(test)
+
+  train_dl <- as_dataloader(train_ds, shuffle = TRUE)
+  valid_dl <- as_dataloader(valid_ds)
+  test_dl  <- as_dataloader(test_ds)
+
+  ckpt_path <- here("data", "results", glue::glue("model_exp=2_fold={fold_idx}.pt"))
+
+  # build and fit the model
+  net <- rnn %>%
+    setup(optimizer = optim_adam,
+          loss = nn_cross_entropy_loss(),
+          metrics = list(luz_metric_accuracy())) %>%
+    set_hparams(num_layers = 2, bidirectional = TRUE) %>%
+    set_opt_hparams(lr = 1e-03) %>%
+    fit(train_dl, valid_data = valid_dl, epochs = EPOCHS, accelerator = accelerator(),
+        callbacks = list(luz_callback_model_checkpoint(
+                          path = ckpt_path,
+                          monitor = "valid_loss",
+                          save_best_only = TRUE)))
+
+  # reload the best model
+  luz_load_checkpoint(net, ckpt_path)
+
+  # create the predictions and add them to the results
+  predictions <- net %>% predict(test_dl) %>% nnf_softmax(dim = 2)
+  test_ds     <- test_ds %>%
+    mutate(prediction = predictions %>% torch_argmax(dim = 2) %>% as_array,
+           fold = fold_idx) %>%
+    bind_cols(predictions %>% as_array %>% as_tibble(.names_repair = "unique"))
+  if (!exists("results")) {
+    results <- test_ds
+  } else {
+    results <- bind_rows(results, test_ds)
+  }
+}
+
+# finalise the results data
+results <- results %>%
+  mutate(class = factor(class, levels = c(1, 2, 3)),
+         prediction = factor(prediction, levels = c(1, 2, 3)))
+
+# write to csv for later.
+results %>%
+  write_csv(here("data", "results", "exp=2.csv"))
+```
+
+In this section we train the RNN on all keywords, instead, the train/test split is made upon the date of data sampling. In this experiment, we once again perform 5-fold cross validation on all weeks, meaning that roughly 53 weeks are used as the testing data, while the rest of the sampled data from different dates are used for training.
+
+The results are presented in Table \ref{tab:results_table} for both 3-class and 2-class tasks (rows 5-8). When predicting using a 24-hour window (row 5), the RNN gets an accuracy score of 84.12% which is roughly 223 weeks out of the total 265. If we collapse pattern C into A (row 7), the accuracy increases to 96.21% (256 weeks out of 265). While these incorrectly predicted 24-hour windows do not occur sequentially, it does indicate that the RNN is able to predict well for a significant proportion of the data.
+
+```{r}
+#| fig-height: 6
+#| fig-width: 4.5
+#| fig-cap: Number of incorrect pattern prediction per keyword. Figure (a) shows the incorrect predictions for the 3-class task (A, B, C), while figure (b) shows the incorrect predictions with 2-classes (A+C, B).
+#| label: fig-incorrect-keyword-time
+
+p1 <- results2 %>%
+  filter(prediction != class) %>%
+  group_by(keyword) %>%
+  summarise(value = n(), .groups = "keep", class = first(class)) %>%
+  ggdotchart(x = "keyword", y = "value", color = "class",
+             rotate = T, add = "segments", group = "class",
+             dot.size = 2,
+             #label = "value",
+             palette = c("seagreen3", "salmon", "skyblue1"),
+             ylab = "Number of errors",
+             ggtheme = theme_linedraw(),
+             font.label = list(color = "black", size = 8, vjust = 0.5, hjust = -1.),
+             title = "(a) 3-class") +
+  theme(axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        axis.title = element_text(size = 9),
+        axis.text = element_text(size = 7),
+        panel.grid = element_line(color = "lightgray", linetype = "dashed"),
+        plot.title = element_text(size = 9),
+        legend.position = "top",
+        plot.margin = unit(c(0, 4, 0, 0), "mm"))
+
+p2 <- results2 %>%
+  mutate(class = as.character(class), prediction = as.character(prediction)) %>%
+  mutate(class = ifelse(class == "C", "A", class),
+         prediction = ifelse(prediction == "C", "A", class)) %>%
+  filter(prediction != class) %>%
+  group_by(keyword) %>%
+  summarise(value = n(), .groups = "keep", class = first(class)) %>%
+  ggdotchart(x = "keyword", y = "value", color = "class",
+             rotate = TRUE, add = "segments",
+             dot.size = 2,
+             palette = c("salmon"),
+             ylab = "Number of errors",
+             font.label = list(color = "black", size = 8, vjust = 0.5),
+             ggtheme = theme_linedraw(),
+             title = "(b) 2-class") +
+  theme(axis.title.y = element_blank(),
+        legend.title = element_blank(),
+        legend.position = "none",
+        axis.title = element_text(size = 9),
+        axis.text = element_text(size = 7),
+        panel.grid = element_line(color = "lightgray", linetype = "dashed"),
+        plot.title = element_text(size = 9),
+        plot.margin = unit(c(0, 4, 0, 0), "mm"))
+
+(p1 + p2) + plot_layout(axis_titles = "collect")
+```
+
+```{r}
+#| fig-cap: Frequency of incorrect predictions for the (a) _Sad_ and (b) _Table_ keywords. Red dashed lines shows the start and end of the hightened period of COVID-19 activity.
+#| label: fig-depression-sad
+#| fig-width: 4.5
+#| fig-height: 2
+#| fig-format: svg
+results2 %>%
+  filter(keyword %in% c("Sad", "Table"), prediction != class) %>%
+  mutate(keyword = str_replace_all(keyword, "Sad", "(a) Sad") %>%
+           str_replace_all("Table", "(b) Table")) %>%
+  ggplot(aes(x = as.POSIXct(date))) +
+  geom_histogram(aes(y=after_stat(density)), bins = 50, color = "darkgray", fill = "white") +
+  geom_vline(xintercept = as.POSIXct(as.Date("2020/01/01")), color = "red", linetype = 2) +
+  geom_vline(xintercept = as.POSIXct(as.Date("2022/01/01")), color = "red", linetype = 2) +
+  geom_density(alpha = 1.0, color = "black", linetype = "dashed") +
+  scale_x_datetime(breaks = date_breaks(width = "1 year"), date_labels = "%Y") +
+  facet_wrap(vars(keyword), nrow = 1) +
+  labs(y = "Density of errors", x = "Date") + 
+  theme(strip.background = element_blank(),
+        strip.text = element_text(colour = "black"),
+        axis.text = element_text(size = 7))
+```
+
+```{r}
+#| fig-cap: Comparison of search index for the keyword (a) _Sad_ and (b) _Table_ during COVID-19 lock-downs and otherwise.
+#| label: fig-covid-sad
+#| message: false
+#| fig-width: 4.5
+#| fig-height: 2.5
+p1 <- data %>%
+  filter(between(date, as.Date("2020/03/01"), as.Date("2020/12/31"))) %>%
+  create_mean_curves(no.normalise = TRUE) %>%
+  add_column(covid = TRUE) %>%
+  bind_rows(.,
+    data %>%
+      filter(!between(date, as.Date("2020/03/01"), as.Date("2020/12/31"))) %>%
+      create_mean_curves(no.normalise = TRUE) %>%
+      add_column(covid = FALSE)) %>%
+  filter(keyword == "Sad") %>%
+  ggplot(aes(x = hour, y = value, linetype = covid)) +
+  geom_line() +
+  labs(x = "Hour", y = "Search volume", linetype = "COVID-19", title = "(a) Sad") + 
+  theme(legend.position = "none")
+
+p2 <- data %>%
+  filter(between(date, as.Date("2020/03/01"), as.Date("2020/12/31"))) %>%
+  create_mean_curves(no.normalise = TRUE) %>%
+  add_column(covid = TRUE) %>%
+  bind_rows(.,
+    data %>%
+      filter(!between(date, as.Date("2020/03/01"), as.Date("2020/12/31"))) %>%
+      create_mean_curves(no.normalise = TRUE) %>%
+      add_column(covid = FALSE)) %>%
+  filter(keyword == "Table") %>%
+  ggplot(aes(x = hour, y = value, linetype = covid)) +
+  geom_line() +
+  labs(x = "Hour", y = "Search volume", linetype = "COVID-19", title = "(b) Table") +
+  theme(legend.position = "none")
+
+(p1 + p2) + plot_layout(axis_titles = "collect", guides = "collect") & theme(legend.position = "bottom")
+```
+
+In @fig-incorrect-keyword-time (a) the most commonly incorrect keywords are from pattern C, with *Sad* having the highest frequency of incorrect predictions. @fig-depression-sad (a) shows that the *Sad* keyword is more accurately predicted during the COVID-19 pandemic than other dates. While the search volume pattern of the *Sad* keywords looks similar if we compare the volume of searches for during and outside the pandemic lock-downs (@fig-covid-sad), the range of values is much higher during these lock-downs. With the 2-class scenario (@fig-incorrect-keyword-time (b)), it is apparent that the only incorrect predictions are made for the B pattern, most prominently is the *Table* keyword. @fig-covid-sad (b) shows an increase for searches using *Table* during COVID-19 lock-downs than other dates while the morphology of the search index remains the same. @fig-depression-sad (b) shows there are more incorrect predictions for the *Table* keyword from 2020-2021. From both of these cases it becomes more clear that the RNN has difficulty in predicting the patterns when the level of search indexes increases or decreases, even if the pattern of the search index stays the same.
+
+# Discussion {#sec-discussion}
+
+Economic and well-being indicators, which provide crucial insights into a nation's prosperity and associated citizens' quality-of-life, are notoriously expensive to measure accurately. This high cost leads to infrequent data collection, often resulting in outdated or incomplete information for policymakers and researchers. As detailed in @sec-introduction, this limitation poses significant challenges for real-time economic analysis and social policy formulation, potentially hindering effective decision-making and timely interventions. Google Trends™ and keyword search volume analysis offer policymakers access to high-frequency data, enabling more informed and timely decision-making. This innovative approach provides a continuous stream of real-time insights into public interests and concerns. This data-driven approach empowers policymakers to craft agile, evidence-based strategies that respond effectively to shifting societal dynamics and emerging challenges. This research establishes a foundation for developing a Machine Learning framework to examine keyword trends. Our RNN model possess demonstrable proficiency in categorizing 24-hour periods into three distinct patterns. This approach offers a scalable method for automated trend classification in large-scale search data. The developed RNN model can function as an anomaly detection system by identifying deviations from established pattern classifications for known keywords. This capability enables the detection of unusual trends or shifts in search behaviour, potentially alerting analysts to emerging issues or changes in public interest. Such an application could enhance real-time monitoring and early warning systems across various domains. The present analyses shows that while the RNN performs well, it struggles with changes in search volume. More work is needed to improve the model's ability to handle these fluctuations. This improvement would make the RNN more reliable for real-world use.
+
+
+# Conclusion {#sec-conclusion}
+
+Our study analysed hourly search volumes for 61 keywords on Google Trends™ over a five-year period. The analysis revealed three primary patterns of daily seasonality in the search data. Using the Dynamic Time Warping algorithm, we categorised each of the 61 keywords into one of the three identified patterns. We then trained a Recurrent Neural Network to learn and classify these patterns automatically. This approach enables efficient categorisation of search trends and lays the groundwork for automated pattern recognition in large-scale search data. We assessed the performance of the RNN through two experiments, demonstrating its ability to generalise across diverse keywords and date periods. Our evaluations revealed that the model effectively categorizes two distinct patterns (A+C and B). However, distinguishing between patterns A and C proved more challenging due to their morphological similarities. This insight highlights both the strengths and limitations of our current approach to pattern classification in search trend data. The challenge of distinguishing between patterns A and C is further compounded by significant fluctuations in search volume, such as those observed during the peaks of the COVID-19 pandemic (e.g., lock-downs in the UK). These volume changes can lead to increased misclassifications. Current research is examining techniques to enhance the models’ robustness against volume fluctuations, potentially improving classification accuracy during periods of exceptionally atypical search behaviour.
+
+# References {#references .unnumbered}
+
+::: {#refs}
+:::
+
+<!-- \appendices -->
+
+<!-- # All keywords and their daily averages {#appendix-a} -->
+
+<!-- In @tbl-keywords we provide all 61 keywords used in this study. Along with each keyword is the normalised daily average over the 265 weeks, and the pattern label. -->
+
+<!-- ```{r} -->
+<!-- #| label: tbl-keywords -->
+<!-- #| tbl-cap: List of keywords considered in this study, along with their associated pattern type and daily average search volume. -->
+
+<!-- mean_curves %>% -->
+<!--   left_join(final_data %>% select(keyword, class) %>% unique, by = "keyword") %>% -->
+<!--   group_by(keyword) %>% -->
+<!--   select(keyword, class) %>% -->
+<!--   mutate(value = "", class = map(class, label_converter) %>% unlist) %>% -->
+<!--   unique() %>% -->
+<!--   arrange(class, keyword) %>% -->
+<!--   kable(booktabs = T, -->
+<!--         align = "rcc", -->
+<!--         linesep = "", -->
+<!--         col.names = c("Keyword", "Pattern", "Daily Average")) %>% -->
+<!--   column_spec(3, image = spec_plot(split(mean_curves$value, mean_curves$keyword), dir = here("scripts", "spec_plots"), file_type = "pdf", same_lim = F, width = 150, height = 30)) -->
+<!-- ``` -->
+
+<!-- # Architecture of RNN {#appendix-b} -->
+
+<!-- @tbl-architecture shows the outline of the RNN used in this paper. We include the input and output shape, along with the total number of parameters. -->
+
+<!-- ```{r} -->
+<!-- #| tbl-cap: Architecture of RNN. -->
+<!-- #| label: tbl-architecture -->
+<!-- #| tbl-pos: H -->
+<!-- tibble( -->
+<!--   Layer = c("LSTM", "LSTM", "Linear", "ReLU", "Linear", "ReLU", "Linear", ""), -->
+<!--   `Input Size` = c(1, 256, 256, 256, 256, 256, 256, ""), -->
+<!--   `Output Size` = c(256, 256, 256, 256, 256, 256, 3, ""), -->
+<!--   `# Parameters` = c(265216, 526336, 65792, 0, 65792, 0, 771, 923907), -->
+<!-- ) %>% -->
+<!--   kable( -->
+<!--     booktabs = T, -->
+<!--     align = "llll", -->
+<!--     linesep = "", -->
+<!--     format.args = list(big.mark = ","), -->
+<!--   ) %>% -->
+<!--   pack_rows("Total", 8, 8, hline_after = TRUE) -->
+<!-- ``` -->
